@@ -1,14 +1,16 @@
 ---
-title: 'Your Title Here'
-author: "Don Francisco"
-date: "November 1, 2020"
-output: pdf_document
+title: 'Comparing Texas COVID-19 Data To Other US States With High Mortality and Population Density'
+author: "Leeza Sergeeva"
+date: "December 6, 2020"
+output: bookdown::pdf_document2
 csl: bioinformatics.csl
 bibliography: references.bib
 params:
   gff_file_path: "/data/sars_vcf_analysis/02_genome_reference/sars_refgenome_annotation.gff"
   vcf_dir_path: "data/11_vcf_output_for_R"
-  sra_runtable_path: "data/00_sra_runtable/SraRunTable_PRJNA656695_short_example.txt"
+  sra_runtable_path: "data/00_sra_runtable/SraRunTable_TX.txt"
+  chosen_date: "20201130"
+  pop_density_data: "data/raw_data/2020_population_density_US.csv"
 ---
 
 ```{r setup, include = FALSE}
@@ -19,24 +21,41 @@ knitr::opts_chunk$set(echo = FALSE,
 ```
 
 # Background and Overview
+This report consists of two parts. 
 
-This is a report on SARS-CoV-2, including some variant analysis [@koyama2020variant].
+First part uses user input for any date to gain insight of situation in the United States during the COVID-19 pandemic. By providing an argument in the form of a date (YYYYMMDD), we can look at total death numbers, number of positive cases, and number of total hospitalizations up to the chosen date and compare those to Texas COVID-19 statistics. This data is also compared with the 2020 United States population density and the general time line of mortality increase and the amount on positive tests increase for the top 5 states with the highest number of deaths up to chosen date, including Texas. The states with the highest population have the highest number of deaths. 
+
+Second part consists of variant analysis of SARS-CoV-2 sequencing data from Texas obtained from BioProject on NCBI website. This was an adaptation of the previous SARS-CoV-2 variant analysis [@koyama2020variant]. As predicted S and N genes have the highest number of SNPs variants in analyzed Texas samples possibly due to their larger size comparing to the other genes.
 
 # Methods
 
+## COVID-19 data
+
+The data is provided in real time using API from the [COVID Tracking Project](https://covidtracking.com/data/api) website [@the_covid_tracking_project_2020]. The following columns were selected for the visualization:
+'date' column represents date as YYYYMMDD on which data was collected by The COVID Tracking Project. The earliest date that can be used is 20200122.
+'state' column represents two-letter abbreviation for the state.
+'death' column represents total fatalities with confirmed OR probable COVID-19 case diagnosis.
+'deathIncrease' column represents daily increase in death, calculated from the previous day’s value.
+'hospitalizedCumulative' column represents total number of individuals who have ever been hospitalized with COVID-19.
+'hospitalizedIncrease' column represents daily increase in hospitalizedCumulative, calculated from the previous day’s value.
+'positive' column represents total number of confirmed plus probable cases of COVID-19 
+'positiveIncrease' column represents the daily increase positive cases (confirmed plus probable) calculated based on the previous day’s value.
+
+## US Population Density Data
+The US population density data was downloaded from this [website](https://worldpopulationreview.com/state-rankings/state-densities) as a .csv table. Using Excel the 'State' column was modified to match state's two letter codes.
+
+## SARS-CoV-2 Sequences
+
+On November 16, 2020 I downloaded "TX SARS-CoV-2 Sequencing" SraRunTable from BioProject on NCBI website related to SARS-CoV-2. Here are the links to "TX SARS-CoV-2 Sequencing" BioProject: "https://www.ncbi.nlm.nih.gov/bioproject/PRJNA639066".
+
+Reference SARS-CoV-2 isolate Wuhan-Hu-1, complete genome sequence was downloaded on October 15, 2020 from NCBI website "https://www.ncbi.nlm.nih.gov/nuccore/NC_045512".
+
+## Sequence data processing and filtering, from .fastq to .vcf files
+
+Through series of executed shell scripts the .fastq files referenced in SraRunTables_tx.txt file were downloaded to external server provide by the University of San Francisco, as well as the SARS-CoV-2 reference genome file, the annotation gff for SARS-CoV-2. Then [FastQC](https://www.bioinformatics.babraham.ac.uk/projects/fastqc/) program processed .fastq files downloaded to validate the quality of the high throughput sequencing data sets [@andrews2012]. Next step used [trimmomatic](http://www.usadellab.org/cms/?page=trimmomatic) function to clean up sequencing data by throwing out bad sequences. With the help of [Burrows-Wheeler Alignment Tool](http://bio-bwa.sourceforge.net/bwa.shtml) reference genome was indexed, and the reads in each of the samples provided were aligned to the reference genome and saved as .sam files [@BWA]. Using [Samtools](https://www.htslib.org/), .sam files were converted to .bam files and sorted by leftmost coordinates. Then each sorted .bam file was processed by [Samtools flagstat](https://www.htslib.org/doc/samtools-flagstat.html) to count number of alignments in each FLAG type, like QC pass, QC fail etc [@SAM]. Using [bcftools mpileup](https://samtools.github.io/bcftools/bcftools.html) on sorted .bam files generate .bcf file that contains genotype likelihoods at each genomic position with coverage and then SNPs are called for each input file saving output of that as .vcf files and filtering out the short variants for the final VCF.  
+
 See the set of tutorials on the [vcfR package website](https://knausb.github.io/vcfR_documentation/index.html).
 
-You may also want to use any of a range of different COVID data packages and data sources:
-
-* https://kjhealy.github.io/covdata/
-* https://github.com/como-ph/oxcovid19
-* https://ropensci.org/blog/2020/10/20/searching-medrxivr-and-biorxiv-preprint-data/
-* https://covidtracking.com/data/api
-  * `readr::read_csv("https://api.covidtracking.com/v1/states/daily.csv")`
-* https://rt.live/
-  * `readr::read_csv("https://d14wlfuexuxgcm.cloudfront.net/covid/rt.csv")`
-
-## Subsections are ok too
 
 # Results and Discussion
 
@@ -45,10 +64,25 @@ library("vcfR")
 library("ggplot2")
 library("dplyr")
 library("ggthemes")
+library("tidyr")
+library("readr")
+library("ggpubr")
+library("lubridate")
+library("ggpmisc")
+library("devtools")
+library("patchwork")
+library("plyr")
+library("png")
+library("gridExtra")
+library("withr")
+library("scales")
+library("bookdown")
+library("knitr")
 
 # this loads all function files in the code/functions directory
 function_paths <- list.files("code/functions", full.names = TRUE)
 purrr::walk(function_paths, source)
+
 ```
 
 ```{r load-vcf-data}
@@ -69,41 +103,401 @@ vcf_with_metadata <- add_genes_metadata_to_vcfstack(
   sra_runtable_path = params$sra_runtable_path,
   stacked_vcf = stacked_vcfs,
   cleaned_genes_table = gene_table)
+
 ```
 
-# Figures
+The US states with the highest populations in 2020 are: CA, TX, FL, NY, PA, IL. (See Table \@ref(tab:top15-population-density-table)) The US states with the highest population density are: DC, NJ, RI, MI, CT. (See Table \@ref(tab:top15-total-population-table)) States with the most cumulative deaths as of November 30, 2020 are: NY, TX, CA, FL, NJ. (See Figure \@ref(fig:total-deaths-plot)) This looks like the total population might be related to the total number of deaths related to COVID-19. As most of those states with high mortality are close to the ocean they contradict findings done in Japan, where lower mortality rates were observed for higher temperature and absolute humidity [@pmid32751311]. Looking into humidity and average temperature data in the United States would provide more incite. States with most hospitalizations up to selected date are: NY, FL, NJ, GA, OH. (See Figure \@ref(fig:total-hospital-plot)) Note: there was no hospitalization data for Texas provided in the API. States with most positive test results up to selected date are: CA, TX, FL, IL, NY. (See Figure \@ref(fig:total-positive-plot))
 
-```{r sample-plot}
+It seems like the population density is not directly related  to the spread of COVID-19. It might be helpful to look at the data on county or city level to determine if the population density contributed to the spread of COVID-19. However, it's been shown that the spread of the disease has moderate association with population density based studies done on India's COVID-19 data [@pmid33072850]. Another study showed no statistically significant relationship between the spread of the disease and population density [@ValevD]. As the number of positive tests increases, so does the number of dead people in the state. (See Figure \@ref(fig:increase-death-positive-test-plots)) This finding is similar to that presented in another paper advocating closest relationship of Deaths per million population and total Cases per million population [@ValevD]. Based on total population similarities with California and New York, Texas's relationship to COVID-19 is very similar. It would be interesting to compare the humidity, and temperature data in the future.
+
+Most of the states enforced stay at home order starting in March 2020 and extending until April or May. There are studies suggesting that the systematic and early implementation of preventive and control measures for at least 2 months reduces the number of cases [@kumaravel_2020]. However, on the time series plot we can see rise in COVID-19 cases in CA, TX and FL after July. This could be due to American celebration of Independence Day, July 4th. On the other hand, we can see that NY and NJ didn't have a spike in COVID-19 cases. (See Figure \@ref(fig:increase-death-positive-test-plots)). This could be due to strict lockdown regulations enforced by NY mayor with high monetary fines [@NYC_COVID_19].  Full civil cooperation in voluntary isolation seems to reduce the spread of the disease. 
+
+The variant analysis of SARS-CoV-2 sequencing data from Texas shows highest number of SNPs variants in S (spike glycoprotein) and N (nucleocapsid phosphoprotein) genes. (See Figure  \@ref(fig:unique-SNPs-plot)) This could be due to the relatively large size of those two genes comparing to the other ones. (See Table \@ref(tab:sars-cov-2-genes-table)) This finding is consistent with the published variant analysis of SARS-CoV-2 genomes [@koyama2020variant]. 
+
+
+# Figures
+```{r unique-SNPs-plot, fig.cap = "N and S genes have more unique SNPs in the set of samples analyzed."}
 # create a plot of unique SNP locations within each gene across all samples
-vcf_with_metadata %>%
+sars_cov_2_genes <- vcf_with_metadata %>%
   filter(!is.na(gene)) %>% # get rid of SNPs not in gene regions
   group_by(gene, pos) %>%
   tally() %>% # this gives a column n for the number of gene by position
   group_by(gene) %>%
-  tally() %>% # this collapses that down to the number of unique SNP locations
-  ggplot(aes(x = gene,
-             y = n)) +
-    geom_col() +
-    labs(title = "Count of distinct SNPs in Named SARS-CoV-2 Genes",
-         x = "Gene Name") +
+  tally() # this collapses that down to the number of unique SNP locations
+  
+# make bar plot of the SNPs for specific genes
+  sars_cov_2_genes_plot <- ggplot(data = sars_cov_2_genes,
+                                  aes(x = gene, y = n)) +
+  geom_col() +
+  labs(title = "Count of distinct SNPs in Named SARS-CoV-2 Genes",
+       x = "Gene Name") +
   theme_few() # get rid of the grey background
+
+# save the plot
+ggsave(plot = sars_cov_2_genes_plot,
+       filename = paste0("output/figures/sars_cov_2_genes_plot.png"))
+
+sars_cov_2_genes_plot
+
 ```
 
-**Figure 1**: N and S genes have more unique SNPs in the set of samples analyzed.
+**Figure 1:** N and S genes have more unique SNPs in the set of samples analyzed.
+
+``` {r total-deaths-plot, fig.height=6, fig.cap = "The bar plot of the top 5 US States (including Texas) with the highest total number of COVID-19 related deaths on given date."}
+# import death data using a function state_covid_death
+all_state_data <- all_state_covid_data()
+
+# take the input date and select rows matching it
+states_data_chosen_date <- all_state_data %>%
+  select(date, state, death) %>%
+  dplyr::filter(`date` == params$chosen_date)
+  
+# reorder data to show the states with the most deaths first
+state_death_date_ordered <- states_data_chosen_date[
+  order(states_data_chosen_date$death, decreasing = TRUE), ]
+
+# take top 5 states with the highest mortality for future plotting as list
+state_death_date_five <- state_death_date_ordered %>% top_n(5)
+
+# create list to test if Texas is included in the data frame
+list_state_death_date_five <- as.list(
+  state_death_date_five$state)
+
+# if TX is not part of the selected states, add TX data to data frame
+if ("TX" %in% list_state_death_date_five) {
+  state_death_date_five_tx <- state_death_date_five
+  } else {
+  df_tx <- subset(state_death_date_ordered, state == "TX")
+  state_death_date_five_tx <- rbind(state_death_date_five, df_tx)
+  }
+
+# this list is used in the graphs related to population density
+list_state_death_date_five_tx <-
+  as.list(state_death_date_five_tx$state)
+
+# create bar plot showing 5 US states and the number of people who died of
+# COVID-19 or COVID-19 related issues
+top_state_death_plot <- ggplot(data = state_death_date_five_tx,
+                                 aes(x = death, y = reorder(state, death),
+                                     fill = state)) +
+  geom_col(width = 0.4) +
+  labs(title = paste("Total Number of Deaths per State as of ",
+                     lubridate::ymd(params$chosen_date)),
+       x = "Total Number of Dead",
+       y = "US State",
+       labels = TRUE) +
+  geom_text(aes(label = death))
+
+# save graph into data/images folder
+ggsave(plot = top_state_death_plot,
+       filename = paste0("output/figures/top5TX_deaths_by_State_on_",
+                        lubridate::ymd(params$chosen_date), ".png"))
+
+top_state_death_plot
+
+```
+
+**Figure 2:** The bar plot of the top 5 US States (including Texas) with the highest total number of COVID-19 related deaths on given date.
+
+``` {r total-hospital-plot, fig.height=6, fig.cap = "The bar plot of the top 5 US States (including Texas) with the highest cumulative number of COVID-19 related hospitalizations on given date. Note: there is no hospitalization data available for Texas."}
+# import hospitalization data using a function all_state_covid_data
+all_state_data <- all_state_covid_data()
+
+# take the input date and select rows matching it
+states_data_chosen_date <- all_state_data %>%
+  select(date, state, hospitalizedCumulative) %>%
+  dplyr::filter(`date` == params$chosen_date)
+  
+# reorder data to show the states with the most hospitalizations first
+state_hospital_date_ordered <- states_data_chosen_date[
+  order(states_data_chosen_date$hospitalizedCumulative, decreasing = TRUE), ]
+  
+# take top 5 states with highest total hospitalizations
+state_hospital_date_five <- state_hospital_date_ordered %>%
+  top_n(5)
+
+# create list to test if Texas is included in the data frame
+list_state_hospital_date_five <- as.list(
+  state_hospital_date_five$state)
+
+# if TX is not part of the selected states, add TX data to data frame
+if ("TX" %in% list_state_hospital_date_five) {
+  state_hospital_date_five_tx <- state_hospital_date_five
+  } else {
+  df_tx <- subset(state_hospital_date_ordered, state == "TX")
+  state_hospital_date_five_tx <- rbind(
+    state_hospital_date_five, df_tx)
+  }
+
+# create bar plot showing 10 US states and number of people who died of COVID-19
+# or COVID-19 related issues
+top_state_hospital_plot <- ggplot(data = state_hospital_date_five_tx,
+                                 aes(x = hospitalizedCumulative,
+                                     y = reorder(state, hospitalizedCumulative),
+                                     fill = state)) +
+  geom_col(width = 0.4) +
+  labs(title = paste0("Total Number of Patients Hospitalized due to
+                      COVID-19 per State as of ",
+                      lubridate::ymd(params$chosen_date)),
+       x = "Total Number of Hospitalized",
+       y = "US State",
+       labels = TRUE) +
+  geom_text(aes(label = hospitalizedCumulative))
+
+# save graph into data/images folder
+ggsave(plot = top_state_hospital_plot,
+       filename = paste0("output/figures/top5TX_hospitalized_by_State_on_",
+                         lubridate::ymd(params$chosen_date), ".png"))
+
+top_state_hospital_plot
+
+```
+
+**Figure 3:** The bar plot of the top 5 US States (including Texas) with the highest cumulative number of COVID-19 related hospitalizations on given date. Note: there is no hospitalization data available for Texas.
+
+``` {r total-positive-plot, fig.height=6, fig.cap = "The bar plot of the top 5 US States (including Texas) with the highest cumulative number of COVID-19 positive test results."}
+# import all data using a function all_state_covid_data
+all_state_data <- all_state_covid_data()
+
+# take the input date and select rows matching it
+states_data_chosen_date <- all_state_data %>%
+  select(date, state, positive) %>%
+  dplyr::filter(`date` == params$chosen_date)
+  
+# reorder data to show the states with the most positive test results first
+state_pos_date_ordered <- states_data_chosen_date[
+  order(states_data_chosen_date$positive, decreasing = TRUE), ]
+  
+# take top 5 states with highest total hospitalizations
+state_pos_date_five <- state_pos_date_ordered %>%
+  top_n(5)
+
+# create list to test if Texas is included in the data frame
+list_state_pos_date_five <- as.list(
+  state_pos_date_five$state)
+
+# if TX is not part of the selected states, add TX data to data frame
+if ("TX" %in% list_state_pos_date_five) {
+  state_pos_date_five_tx <- state_pos_date_five
+} else {
+  df_tx <- subset(state_pos_date_ordered, state == "TX")
+  state_pos_date_five_tx <- rbind(
+    state_pos_date_five, df_tx)
+  return(state_pos_date_five_tx)
+  }
+
+# create bar plot showing 10 US states and the number of people who
+# tested positive for COVID-19
+top_state_positive_plot <- ggplot(data = state_pos_date_five_tx,
+                                  aes(x = positive,
+                                      y = reorder(state, positive),
+                                      fill = state)) +
+  geom_col(width = 0.4) +
+  labs(title = paste("Total Number of Positive COVID-19 Test Results per
+                     State as of ", lubridate::ymd(params$chosen_date)),
+       x = "Total Number of Positive Test Results",
+       y = "US State",
+       labels = TRUE) +
+  geom_text(aes(label = positive))
+
+# save graph into data/images folder
+ggsave(plot = top_state_positive_plot,
+       filename = paste0("output/figures/top5TX_positive_by_State_on_",
+                         lubridate::ymd(params$chosen_date), ".png"))
+
+top_state_positive_plot
+
+```
+
+**Figure 4:** The bar plot of the top 5 US States (including Texas) with the highest cumulative number of COVID-19 positive test results.
+
+``` {r increase-death-positive-test-plots, fig.height=10, fig.cap = "Top graph is a time series plots of mortality increase and bottom graph is a time series of COVID-19 positive tests increase for the top 5 US States (including Texas) with the highest cumulative number of COVID-19 related deaths on given date."}
+# take previously
+all_state_data <- all_state_covid_data()
+
+# select all rows matching the list of five states with highest deaths
+five_tx_state_death_inc <- all_state_data %>%
+  select(date, state, deathIncrease, positiveIncrease) %>%
+  group_by(state) %>%
+  dplyr::filter(`state` == list_state_death_date_five_tx)
+
+# convert date to format YYYY-MM-DD
+five_tx_state_death_inc$date <-
+  lubridate::ymd(five_tx_state_death_inc$date)
+
+# first plot of time series of death increase for top 5 states from
+# previous graph of top moralities on given date
+t_plot <- ggplot(data = five_tx_state_death_inc,
+                 mapping = aes(x = date, y = deathIncrease, color = state)) +
+  geom_line() +
+  facet_grid(rows = vars(state)) +
+  labs(title = "Time Series Of COVID-19 Deaths in Select States",
+       x = "Date", y = "Death Increase") +
+  scale_y_continuous(breaks = c(0, 300, 600, 1000)) +
+  scale_x_date(labels = date_format("%b"), breaks = date_breaks("months")) +
+  theme_bw()
+
+# second plot of time series of positive tests increase for top 5 states from
+# previous graph of top moralities on given date
+p_plot <- ggplot(data = five_tx_state_death_inc,
+                 mapping = aes(x = date, y = positiveIncrease, color = state)) +
+  geom_line() +
+  facet_grid(rows = vars(state)) +
+  labs(title = "Time Series Of COVID-19 Positive Tests in Select States",
+       x = "Date", y = "Positive Test Increase") +
+  scale_y_continuous(breaks = c(0, 7000, 14000, 21000)) +
+  scale_x_date(labels = date_format("%b"), breaks = date_breaks("months")) +
+  theme_bw()
+
+two_timeseries_plot_death_test <-
+  t_plot / p_plot + plot_layout(heights = c(10, 10))
+
+ggsave(plot = two_timeseries_plot_death_test,
+       filename = paste0("output/figures/top5DeathTX_two_timeseries_plot_
+                         deathIncrease_positiveIncrease_on_",
+                         lubridate::ymd(params$chosen_date), ".png"))
+
+two_timeseries_plot_death_test
+
+```
+
+**Figure 5:** Top graph is a time series plots of mortality increase and bottom graph is a time series of COVID19 positive tests increase for the top 5 US States (including Texas) with the highest cumulative number of COVID-19 related deaths on given date.
+
+``` {r population-and-density-plot, fig.height=8, fig.cap = "Top graph shows total US population in 2020 for select 5 states that have high number of deaths up to select date. Bottom graph shows population density in 2020 of the related 5 states with the high number of deaths up to selected date."}
+# load population data
+population_density_data <- readr::read_csv(params$pop_density_data)
+
+# import death data using a function state_covid_death
+all_state_data <- all_state_covid_data()
+
+# take the input date and select rows matching it
+states_data_chosen_date <- all_state_data %>%
+  select(date, state, death) %>%
+  dplyr::filter(`date` == params$chosen_date)
+
+# reorder data to show the states with the most deaths first
+state_death_date_ordered <- states_data_chosen_date[
+  order(states_data_chosen_date$death, decreasing = TRUE), ]
+
+# take top 5 states with the highest mortality for future plotting as list
+state_death_date_five <- state_death_date_ordered %>% top_n(5)
+
+# create list to test if Texas is included in the data frame
+list_state_death_date_five <- as.list(state_death_date_five$state)
+
+# if TX is not part of the selected states, add TX data to data frame
+if ("TX" %in% list_state_death_date_five) {
+  state_death_date_five_tx <- state_death_date_five
+  } else {
+    df_tx <- subset(state_death_date_ordered, state == "TX")
+    state_death_date_five_tx <- rbind(state_death_date_five, df_tx)
+  }
+
+# this list is used in the graphs related to population density
+list_state_death_date_five_tx <- as.list(state_death_date_five_tx$state)
+
+# select top 5 states with highest total deaths at given date
+pop_dens_top_five_states <- population_density_data %>%
+  select(State, Density_p_mi2, Pop_2020, LandArea_mi2) %>%
+  dplyr::filter(`State` %in% list_state_death_date_five_tx)
+
+require(scales)
+# bar chart to show population density
+pop_dens_top_five_states_plot <- ggplot(
+  data = pop_dens_top_five_states,
+  aes(x = Density_p_mi2, y = reorder(State, Density_p_mi2), fill = State)) +
+  geom_col(width = 0.8) +
+  labs(title = paste("2020 Population Density For Select US States"),
+       x = "Population Density (p/mi^2)",
+       y = "US State",
+       labels = TRUE) +
+  geom_text(aes(label = Density_p_mi2))
+
+# bar chart to show population density
+pop_total_five_states_plot <- ggplot(data = pop_dens_top_five_states,
+  aes(x = Pop_2020, y = reorder(State, Pop_2020), fill = State)) +
+  geom_col(width = 0.8) +
+  labs(title = paste0("2020 Total Population For Select US States"),
+       x = "Total Population",
+       y = "US State",
+       labels = TRUE) +
+  geom_text(aes(label = Pop_2020)) +
+  scale_x_continuous(labels = scales::comma)
+
+pop_total_vs_density_plots <- (pop_total_five_states_plot /
+  pop_dens_top_five_states_plot + plot_layout(heights = c(10, 10)))
+
+ggsave(plot = pop_total_vs_density_plots,
+       filename = paste0("output/figures/top5DeathTX_pop_total_vs_density_plots_
+                         on_",
+                         lubridate::ymd(params$chosen_date), ".png"))
+
+pop_total_vs_density_plots
+
+```
+
+**Figure 6:** Top graph shows total US population in 2020 for select 5 states that have high number of deaths up to select date. Bottom graph shows population density in 2020 of the related 5 states with the high number of deaths up to selected date.
+
 
 # Tables
-
-```{r example-table}
+```{r sars-cov-2-genes-table}
 # An example table to show the length of each gene using its start and end
 gene_table %>%
-  mutate(length = end - start) %>%
-  select(gene_name, start, end, length) %>%
-  knitr::kable(col.names = c("Gene Name",
-                             "Start",
-                             "End",
-                             "Length"))
+mutate(length = end - start) %>%
+select(gene_name, start, end, length) %>%
+knitr::kable(col.names = c("Gene Name",
+                            "Start",
+                            "End",
+                            "Length"),
+               caption = "SARS-CoV-2 Gene Names, Locations, and Lengths")
 ```
 
 **Table 1**: Gene names, locations, and lengths in the SARS-CoV-2 genome. Higher SNP counts in the S and N genes may be related to the larger size of these genes.
+
+``` {r top15-population-density-table}
+
+# load population data
+population_density_data <- readr::read_csv(params$pop_density_data)
+
+# select top 5 states with highest total deaths at given date
+pop_dens_top_states <- population_density_data %>%
+  select(State, Density_p_mi2)
+
+pop_dens_top_states_ordered <- pop_dens_top_states[
+  order(population_density_data$Density_p_mi2, decreasing = TRUE), ]
+
+pop_dens_top_states_ordered <- pop_dens_top_states_ordered %>% top_n(15)
+  
+pop_dens_top_states_ordered %>%
+  knitr::kable(col.names = c("State",
+                             "Pop Density (p/mi^2)"),
+               caption = "Top 15 US States With
+               Highest Population Density in 2020")
+```
+
+**Table 2**: Top 15 states with highest population densities in 2020.
+
+``` {r top15-total-population-table}
+
+# load population data
+population_density_data <- readr::read_csv(params$pop_density_data)
+
+# select top 5 states with highest total deaths at given date
+pop_top_states <- population_density_data %>%
+  select(State, Pop_2020)
+
+pop_top_states_ordered <- pop_top_states[
+  order(population_density_data$Pop_2020, decreasing = TRUE), ]
+
+pop_top_states_ordered <- pop_top_states_ordered %>% top_n(15)
+  
+pop_top_states_ordered %>%
+  knitr::kable(col.names = c("State",
+                             "Population"),
+               caption = "Top 15 US States With Highest Population in 2020")
+```
+
+**Table 3**: Top 15 states with highest total population in 2020.
+
 
 # Sources Cited
